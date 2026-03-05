@@ -1,0 +1,142 @@
+pipeline_name: sdg6_calendar_pipeline
+pipeline_version: 1.0
+
+processes:
+
+  parse_excel:
+    module: scripts.parse_calendar_excel
+    input_dir: calendar
+    output_dir: calproc
+
+  clean_group:
+    module: scripts.clean_group
+    input_dir: calproc
+    output_dir: calproc_can
+
+  match_group_uid:
+    module: scripts.match_group_uid
+    input_dir: calproc_can
+    output_dir: calproc_gpuid
+
+  qa_missing_group_uid:
+    module: scripts.qa_missing_group_uid
+    input_dir: calproc_gpuid
+    output_dir: group
+
+  clean_neighborhood:
+    module: scripts.clean_neighborhood
+    input_dir: calproc_gpuid
+    output_dir: calproc_neighclean
+
+  match_wc_uid:
+    module: scripts.match_wc_uid
+    input_dir: calproc_neighclean
+    output_dir: calproc_wcuid
+
+  qa_catalog_wc_group:
+    module: scripts.qa_wcuid_grpuid
+    input_dir: calproc_wcuid
+    output_dir: qa/wcuid
+
+  process_days:
+    module: scripts.process_days
+    input_dir: calproc_wcuid
+    output_dir: calproc_days
+
+  hours:
+    module: scripts.process_hours
+    input_dir: calproc_days
+    output_dir: calproc_horas
+
+  aggregate_sdg11:
+    module: scripts.aggregate_pipeline
+    input_dir: calproc_horas
+    output_dir: AggSdg11
+    aggregation: sdg11uid_month
+
+  aggregate_sector:
+    module: scripts.aggregate_pipeline
+    input_dir: calproc_horas
+    output_dir: AggSector
+    aggregation: sector_month
+
+  aggregate_wc_group:
+    module: scripts.aggregate_pipeline
+    input_dir: calproc_horas
+    output_dir: AggWcGroup
+    aggregation: wc_group_month
+
+
+
+
+paths:
+  infrastructure_catalog: catalog/infrastructure_catalog.csv
+
+aggregations:
+
+  sdg11uid_month:
+
+    merge_catalog: false
+
+    group_by:
+      - SDG11UID
+      - year_month
+
+    metrics:
+      hours_with_water:
+        max: max_hours_with_water
+        min: min_hours_with_water
+        mean: mean_hours_with_water
+
+      days_with_water:
+        max: max_days_with_water
+        min: min_days_with_water
+        mean: mean_days_with_water
+
+    counts:
+      wc_uid: count_wc_uid
+
+
+  sector_month:
+
+    merge_catalog: true
+
+    group_by:
+      - water_sector
+      - year_month
+
+    metrics:
+      hours_with_water:
+        mean: mean_hours_with_water
+
+      days_with_water:
+        mean: mean_days_with_water
+
+
+  wc_group_month:
+
+    merge_catalog: true
+
+    group_by:
+      - water_sector
+      - distribution_unit
+      - water_source
+      - group_uid
+      - wc_uid
+      - year_month
+
+    metrics:
+      hours_with_water:
+        max: max_hours_with_water
+        min: min_hours_with_water
+        mean: mean_hours_with_water
+
+      days_with_water:
+        max: max_days_with_water
+        min: min_days_with_water
+        mean: mean_days_with_water
+
+    counts:
+      SDG11UID: count_sdg11uid
+
+
