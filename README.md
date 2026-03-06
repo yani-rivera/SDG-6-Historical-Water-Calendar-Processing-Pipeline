@@ -65,15 +65,18 @@ This guide explains:
 - expected outputs and QA reports
 - 
 ## Repository Structure
-  SDG6/
-  ├── README.md
-  ├── docs/
-  │   └── PIPELINE_USAGE.md
-  ├── scripts/
-  ├── config/
-  ├── data/
-  ├── output/
-  └── Aggregates/
+
+  ```
+SDG6/
+├── README.md                 # Project overview
+├── docs/
+│   └── PIPELINE_USAGE.md     # Full pipeline execution guide
+├── scripts/                  # Processing scripts
+├── config/                   # Pipeline configuration files
+├── data/                     # Intermediate processed data
+├── output/                   # QA reports
+└── Aggregates/               # Final aggregated datasets
+```
 
 
 ## Reproducibility
