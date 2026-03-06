@@ -64,7 +64,6 @@ This guide explains:
 - how to run each processing step using `BatchRunner.py`
 - expected outputs and QA reports
 ## Repository Structure
-  
 SDG6/
 ├── README.md
 ├── docs/
