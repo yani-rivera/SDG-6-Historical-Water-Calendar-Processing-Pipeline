@@ -55,7 +55,7 @@ The processing workflow includes the following stages:
 Detailed instructions for executing the full SDG-6 processing pipeline are provided in the documentation below:
 
 
-![Pipeline Execution Guide](docs/SDG-6 UsageGuide.md)
+[Pipeline Execution Guide](docs/SDG-6 UsageGuide.md)
 
 This guide explains:
 
@@ -63,6 +63,7 @@ This guide explains:
 - required configuration parameters
 - how to run each processing step using `BatchRunner.py`
 - expected outputs and QA reports
+  
 SDG6/
 ├── README.md
 ├── docs/
