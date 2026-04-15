@@ -50,6 +50,35 @@ The processing workflow includes the following stages:
 
 ![SDG-6 Processing Pipeline](docs/figures/sdg6_pipeline_infographic.png)
 
+## Pipeline Usage Guide
+
+Detailed instructions for executing the full SDG-6 processing pipeline are provided in the documentation below:
+
+
+[Pipeline Execution Guide](docs/SDG-6 UsageGuide.md)
+
+This guide explains:
+
+- the ordered pipeline stages
+- required configuration parameters
+- how to run each processing step using `BatchRunner.py`
+- expected outputs and QA reports
+- 
+## Repository Structure
+
+  ```
+SDG6/
+├── README.md                 # Project overview
+├── docs/
+│   └── PIPELINE_USAGE.md     # Full pipeline execution guide
+├── scripts/                  # Processing scripts
+├── config/                   # Pipeline configuration files
+├── data/                     # Intermediate processed data
+├── output/                   # QA reports
+└── Aggregates/               # Final aggregated datasets
+```
+
+
 ## Reproducibility
 
 The pipeline is implemented in **Python** and designed to support:
