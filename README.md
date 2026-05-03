@@ -1,5 +1,7 @@
 # SDG-6 Historical Water Distribution Calendars – Processing Pipeline
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20000372.svg)](https://doi.org/10.5281/zenodo.20000372)
+
 This repository contains the processing pipeline used to reconstruct historical
 water distribution calendars for Tegucigalpa, Honduras.
 
