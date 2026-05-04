@@ -128,7 +128,7 @@ Datasets archived on Zenodo are released under **CC-BY 4.0**, unless otherwise s
 
 The processed datasets derived from this pipeline are archived on Zenodo:
 
-*DOI: (to be added after dataset publication)*
+*[DOI: (to be added after dataset publication)](https://doi.org/10.5281/zenodo.20000372)*
 
 These datasets include structured calendar records, water availability metrics,
 and geospatial layers linking water distribution schedules to neighborhoods.
