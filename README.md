@@ -50,7 +50,7 @@ The processing workflow includes the following stages:
 6. Aggregation of processed calendar records into standardized datasets.
 7. Export of geospatial layers linking water calendars to neighborhood units.
 
-![SDG-6 Processing Pipeline](docs/figures/sdg6_pipeline_infographic.png)
+![SDG-6 Processing Pipeline](docs/figures/SDG6_Pipeline.png)
 
 ## Pipeline Usage Guide
 
