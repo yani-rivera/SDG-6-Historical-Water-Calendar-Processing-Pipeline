@@ -1,0 +1,76 @@
+# ---------------------------------------------------------------------------
+# Look & feel for plot_monthly_hours.py
+# ---------------------------------------------------------------------------
+# Every key here is optional: anything you omit falls back to the script's
+# built-in defaults (which are these same values). Pass with:
+#   python plot_monthly_hours.py --input all_hours.csv --style plot_style.yaml
+# ---------------------------------------------------------------------------
+
+title:
+  text: "<b>a)</b> Monthly distribution of total hours of piped water Across Neighborhoods"
+  x: 0.0  
+  size: 18
+  color: black
+
+figure:
+  width: 1000
+  height: 600
+  plot_bgcolor: white
+  paper_bgcolor: white
+  margin: { l: 90, r: 40, t: 80, b: 160 }
+
+# Colors of the monthly condition classes (boxes, jitter, and legend swatches
+# all use these — they cannot drift apart).
+class_colors:
+  low: "#FF1744"      # red
+  normal: "#FFDB6D"   # yellow
+  high: "#00E5FF"     # cyan
+
+# Legend labels for each class, and the legend box itself.
+legend:
+  title: "Monthly Condition"
+  labels:
+    low: "Low (Below Mean)"
+    normal: "Typical (Mean)"
+    high: "High (Above Mean)"
+  font_color: black
+  bgcolor: "rgba(0,0,0,0)"
+
+boxes:
+  opacity: 0.7
+  line_color: black
+  line_width: 1
+
+jitter:
+  enabled: true
+  size: 1.5
+  opacity: 0.15
+
+trend_line:
+  show: true
+  name: "Median Trend"
+  color: black
+  width: 1
+
+reference_line:
+  show: true
+  value: 720
+  name: "720 Hours (Max)"
+  color: gray
+  width: 2
+  dash: dash
+
+xaxis:
+  title: "Year–Month"
+  tickangle: -90
+  tick_size: 10
+  tick_color: black
+  linecolor: black
+
+yaxis:
+  title: "Monthly Hours of Water"
+  title_size: 14
+  dtick: 50
+  tick_color: black
+  gridcolor: "rgba(0,0,0,0.1)"
+  zerolinecolor: "rgba(0,0,0,0.2)"

@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# Look & feel: DAYS panel — Monthly Distribution of Days with Piped Water
+# ---------------------------------------------------------------------------
+# Usage:
+#   python plot_monthly_hours.py --input data/consolidated/all_hours.csv \
+#       --style plot_style_days.yaml --output figs/monthly_days.html
+# Only the keys that differ from the built-in (hours) defaults are set here;
+# everything omitted falls back to those defaults.
+# ---------------------------------------------------------------------------
+
+value_column: days_with_water
+
+title:
+  text: "<b>b)</b> Monthly Distribution of Days with Piped Water Across Neighborhoods"
+  x: 0.5                    # left-aligned panel title
+
+class_colors:
+  low: "#FF1744"             # red
+  normal: "#F4C542"          # yellow (adjusted)
+  high: "#00E5FF"            # cyan
+
+legend:
+  labels:
+    low: "Low (Below Mean)"
+    normal: "Typcal (\u2248 Mean)"
+    high: "High (Above Mean)"
+
+boxes:
+  opacity: 0.9
+  line_color: "rgba(0,0,0,0.25)"
+  line_width: 0.6
+
+jitter:
+  enabled: false             # the days panel has no point overlay
+
+trend_line:
+  color: "rgba(0,0,0,0.4)"
+  width: 1.5
+
+reference_line:
+  value: 30
+  name: "30 Days (Full Supply)"
+  color: "rgba(0,0,0,0.4)"
+  width: 2
+  dash: dash
+
+yaxis:
+  title: "Days with Water per Month"
+  range: [0, 30]
+  dtick: null                # automatic ticks

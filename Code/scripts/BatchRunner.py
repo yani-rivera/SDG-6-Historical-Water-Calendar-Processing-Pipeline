@@ -14,8 +14,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
 # Modules to import (for type checking)
 
 #from utils.TextClean import clean_neighborhood # type: ignore
@@ -32,13 +30,17 @@ timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 log_file = LOG_DIR / f"sdg6_pipeline_{timestamp}.log"
 
+# Configure logging ONCE. force=True clears any handlers a library import may
+# have installed, so this file+console configuration actually takes effect
+# (otherwise basicConfig silently no-ops and the .log file stays empty).
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.FileHandler(log_file),
         logging.StreamHandler()
-    ]
+    ],
+    force=True,
 )
 
 
@@ -70,25 +72,62 @@ def run_processor(module_name, input_file, output_file, process_cfg, global_conf
 
     module = import_module(module_name)
 
-    module.process_file(input_file, output_file, process_cfg)
+    # Modules may define process_file with either signature:
+    #   process_file(input_file, output_file)                 -> simple stages
+    #   process_file(input_file, output_file, process_cfg)    -> stages needing config
+    # Pass process_cfg only when the module accepts a third parameter, so both
+    # styles work without editing every module.
+    import inspect
+    n_params = len(inspect.signature(module.process_file).parameters)
+
+    if n_params >= 3:
+        module.process_file(input_file, output_file, process_cfg)
+    else:
+        module.process_file(input_file, output_file)
 
  
 
 
 def process_files(files, module_name, output_base, output_stage, process_cfg, config):
 
+    failures = []
+
     for f in files:
 
-        logging.info(f"Processing file: {f}")
-
         year = f.stem.split("_")[0]
+
+        # Guard: only process files whose name starts with a 4-digit year
+        # (e.g. 2015_11.xlsx). This prevents stray files like wc_2019.xlsx
+        # from creating junk output directories (data/wc/...) or aborting
+        # the batch. Non-conforming files are skipped with a warning.
+        if not (year.isdigit() and len(year) == 4):
+            logging.warning(
+                f"Skipping '{f.name}': filename does not start with a YYYY year."
+            )
+            continue
+
+        logging.info(f"Processing file: {f}")
 
         out_dir = Path(output_base) / year / output_stage
         out_dir.mkdir(parents=True, exist_ok=True)
 
         out_file = out_dir / f"{f.stem}.csv"
 
-        run_processor(module_name, f, out_file, process_cfg, config)
+        # Per-file error isolation: a single bad/empty/malformed file
+        # (e.g. an incomplete month like 2022_10) is logged and skipped
+        # rather than aborting the entire batch.
+        try:
+            run_processor(module_name, f, out_file, process_cfg, config)
+        except Exception as exc:
+            logging.error(f"FAILED '{f.name}': {type(exc).__name__}: {exc}")
+            failures.append((str(f), f"{type(exc).__name__}: {exc}"))
+
+    if failures:
+        logging.warning(f"Completed with {len(failures)} failed file(s):")
+        for path, reason in failures:
+            logging.warning(f"  - {path}: {reason}")
+
+    return failures
 
 
 def main():
@@ -122,6 +161,8 @@ def main():
         stage_dir = year_dir if input_stage == "calendar" else year_dir / input_stage
 
         file_path = stage_dir / args.file
+
+        files = [file_path]
 
         output_stage = process_cfg["output_dir"]
 

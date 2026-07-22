@@ -14,6 +14,13 @@ import pandas as pd
 PIPELINE_VERSION = "2.1"
 PIPELINE_NAME = "sdg6_calendar_days"
 
+# QC log: individual day-rows excluded during prep (invalid qc_valid_row,
+# non-numeric/missing day, day outside 1..31). Accumulates across the batch.
+EXCLUDED_LOG = Path("logs") / "days_excluded.csv"
+
+# Error log: files that raised an exception during processing.
+ERROR_LOG = Path("logs") / "days_errors.csv"
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
@@ -31,6 +38,22 @@ def write_csv_utf8sig(df: pd.DataFrame, path: Path) -> None:
     df.to_csv(path, index=False, encoding="utf-8-sig")
 
 
+def _append_log(rows: pd.DataFrame, log_path: Path) -> None:
+    """Append rows to a QC/error log, writing the header only once."""
+    if rows is None or rows.empty:
+        return
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    rows.to_csv(
+        log_path,
+        mode="a",
+        header=not log_path.exists(),
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+
+
+
 # -----------------------------
 # Prep + QC
 # -----------------------------
@@ -38,12 +61,25 @@ def _as_int_series(s: pd.Series, default=0) -> pd.Series:
     return pd.to_numeric(s, errors="coerce").fillna(default).astype(int)
 
 
-def prep_days_df(df: pd.DataFrame) -> pd.DataFrame:
+def prep_days_df(df: pd.DataFrame, source_name: str = "") -> pd.DataFrame:
     df = df.copy()
+
+    id_cols = [c for c in ["year", "month", "wc_uid", "group_uid",
+                           "neighborhood", "SDG11UID", "schedule", "day"]
+               if c in df.columns]
+
+    def _log_excluded(rows, reason):
+        if rows.empty:
+            return
+        rec = rows[id_cols].copy()
+        rec["exclusion_reason"] = reason
+        rec["source_file"] = source_name
+        _append_log(rec, EXCLUDED_LOG)
 
     # Optional QC filter (handle "1"/1)
     if "qc_valid_row" in df.columns:
         df["qc_valid_row"] = _as_int_series(df["qc_valid_row"], default=1)
+        _log_excluded(df[df["qc_valid_row"] != 1], "qc_valid_row != 1")
         df = df[df["qc_valid_row"] == 1].copy()
 
     # Required numeric fields
@@ -58,8 +94,13 @@ def prep_days_df(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
 
-    # Keep only rows with a valid day
-    df = df[df["day"].notna()].copy()
+    # Log then drop rows with no valid day, and rows with out-of-range day
+    _log_excluded(df[df["day"].isna()], "day missing/non-numeric")
+    _log_excluded(df[df["day"].notna() & ((df["day"] < 1) | (df["day"] > 31))],
+                  "day outside 1..31")
+
+    # Keep only rows with a valid, in-range day
+    df = df[df["day"].notna() & (df["day"] >= 1) & (df["day"] <= 31)].copy()
     return df
 
 
@@ -103,7 +144,7 @@ def collapse_daily(dfd: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
         raise ValueError(f"Missing required columns for daily collapse: {missing}")
 
     daily = (
-        dfd.groupby(keys, as_index=False)
+        dfd.groupby(keys, as_index=False, dropna=False)
            .agg(
                has_water_day=("has_water", "max"),
                n_rows=("has_water", "size"),
@@ -123,12 +164,19 @@ def summarize_monthly(daily: pd.DataFrame, month_keys: list[str]) -> pd.DataFram
         raise ValueError(f"Missing required columns for monthly summary: {missing}")
 
     monthly = (
-        daily.groupby(month_keys, as_index=False)
+        daily.groupby(month_keys, as_index=False, dropna=False)
             .agg(
                 days_observed=("day", "nunique"),
                 days_with_water=("has_water_day", "sum"),
                 conflict_days=("conflict_flag", "sum"),
             )
+    )
+    # Complement of days_with_water: the number of observed days that had no
+    # water. Equivalent to days_observed - days_with_water. Clipped at 0 as a
+    # guard; a negative value would indicate duplicate day-keys inflating
+    # days_with_water and is surfaced by qc_assert_days_observed.
+    monthly["days_without_water"] = (
+        (monthly["days_observed"] - monthly["days_with_water"]).clip(lower=0)
     )
     monthly["pipeline_version_days"] = PIPELINE_VERSION
     monthly["pipeline_name"] = PIPELINE_NAME
@@ -138,14 +186,39 @@ def summarize_monthly(daily: pd.DataFrame, month_keys: list[str]) -> pd.DataFram
 # -----------------------------
 # BatchRunner entrypoint
 # -----------------------------
-def process_file(input_file, output_file):
+def process_file(input_file, output_file, config=None):
     """
     BatchRunner contract:
       input_file: Path to a single calproc_wcuid CSV (e.g., data/2018/calproc_wcuid/2018_03.csv)
-      output_file: Path to output CSV (e.g., output/2018/dias/2018_03.csv)
+      output_file: Path to output CSV (e.g., output/2018/calproc_days/2018_03.csv)
+      config: optional dict of this process's config block (from pipeline_config.yaml).
+              Reads keys: output_dir, no_water_dir, errors_dir. If omitted, safe
+              fallbacks are derived so the QC files still land OUTSIDE the
+              output directory that the next stage globs recursively.
+
+    A file that raises during processing is logged to logs/days_errors.csv and
+    the exception is re-raised so BatchRunner records it too and moves on.
     """
     input_file = Path(input_file)
     output_file = Path(output_file)
+
+    try:
+        _process_file_inner(input_file, output_file, config)
+    except Exception as exc:
+        _append_log(
+            pd.DataFrame([{
+                "source_file": str(input_file),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }]),
+            ERROR_LOG,
+        )
+        logging.error(f"[DAYS] FAILED {input_file.name}: {type(exc).__name__}: {exc} "
+                      f"-> logged to {ERROR_LOG}")
+        raise
+
+
+def _process_file_inner(input_file: Path, output_file: Path, config=None):
 
     logging.info(f"[DAYS] Processing {input_file}")
 
@@ -164,7 +237,7 @@ def process_file(input_file, output_file):
         write_csv_utf8sig(empty, output_file)
         return
 
-    dfd = prep_days_df(df)
+    dfd = prep_days_df(df, source_name=input_file.name)
 
     # QC (non-strict by default)
     qc_assert_day_range(dfd, strict=False)
@@ -180,10 +253,19 @@ def process_file(input_file, output_file):
     month_keys = [k for k in daily_keys if k != "day"]
     monthly = summarize_monthly(daily, month_keys=month_keys)
 
+    # No bucketing / filtering here. Write ONE output containing every
+    # neighborhood-month (all schedule rows). Classification into ok / errors /
+    # no-water is intentionally left to a later, separate filtering step so this
+    # stage stays a straightforward day-summary extractor.
+    #
+    # The QC helpers below only LOG warnings (they do not drop rows), so they are
+    # safe to keep: they surface anomalies (out-of-range days, duplicate day
+    # keys, partial months) without altering the output. Row-level cleaning of
+    # invalid/out-of-range days still happens in prep_days_df, with its own logs.
     qc_log_conflicts(daily)
     qc_assert_days_observed(monthly, strict=False)
     qc_warn_missing_days(monthly, threshold=20)
 
     write_csv_utf8sig(monthly, output_file)
 
-    logging.info(f"[DAYS] Saved: {output_file}")
+    logging.info(f"[DAYS] Saved: {output_file.name} ({len(monthly)} neighborhood-month rows)")

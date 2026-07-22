@@ -27,6 +27,10 @@ import pandas as pd
 PIPELINE_NAME = "sdg6_calendar_hours"
 PIPELINE_VERSION = "3.0"
 
+# QC log: rows whose schedule could not be parsed into hours (junk like "j",
+# or unhandled formats). Accumulates across the batch for review.
+UNPARSED_LOG = Path("logs") / "unparsed_schedules.csv"
+
 DEFAULT_OUTPUT_DIR = "output"
 
 logging.basicConfig(
@@ -53,6 +57,30 @@ def read_csv_utf8sig(path: Path):
 def write_csv_utf8sig(df: pd.DataFrame, path: Path):
 
     df.to_csv(path, index=False, encoding="utf-8-sig")
+
+
+def _append_unparsed_log(dropped: pd.DataFrame, log_path: Path = UNPARSED_LOG):
+    """Append rows with unparseable schedules to a shared QC log.
+
+    Keeps only identifying columns plus the raw schedule string. Writes the
+    header only when the file does not yet exist, so calls across a batch
+    accumulate instead of overwriting.
+    """
+    if dropped.empty:
+        return
+    keep = [c for c in [
+        "year", "month", "wc_uid", "group_uid", "SDG11UID",
+        "neighborhood", "schedule",
+    ] if c in dropped.columns]
+    out = dropped[keep].copy()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(
+        log_path,
+        mode="a",
+        header=not log_path.exists(),
+        index=False,
+        encoding="utf-8-sig",
+    )
 
 
 # --------------------------------------------------
@@ -88,6 +116,31 @@ def parse_schedule_hours(schedule):
     s = re.sub(r"\b(\d{1,2}(?::\d{2})?)M\b", r"\1AM", s)
     s = re.sub(r"\b(\d{1,2}(?::\d{2})?)([AP])\2M\b", r"\1\2M", s)
 
+    # Insert a separator for concatenated intervals with no dash, e.g.
+    # "4PM12MN" -> "4PM-12AM" (12MN was already normalized to 12AM above).
+    # Without this the interval has no "-" and is dropped as unparseable.
+    s = re.sub(r"(AM|PM)(\d{1,2}(?::\d{2})?(?:AM|PM))", r"\1-\2", s)
+
+    # Turn boundaries between parenthesized intervals into separators, e.g.
+    # "(5AM-10AM) (5PM-10PM) (7AM-12MD)" -> "5AM-10AM;5PM-10PM;7AM-12MD".
+    # Handles ")(", ") (", and newlines between groups. Do this BEFORE stripping
+    # parens so any number of intervals are separated, not just two.
+    s = re.sub(r"\)\s*\(", ";", s)
+
+    # Insert a separator between back-to-back ranges separated only by spaces,
+    # e.g. "6AM-6PM 6AM-2PM" -> "6AM-6PM;6AM-2PM".
+    s = re.sub(r"(AM|PM)\s+(\d{1,2}(?::\d{2})?(?:AM|PM))", r"\1;\2", s)
+
+    # Rejoin intervals broken across a line break, e.g. "5:30AM-\n10AM" or
+    # "(5AM-\n10AM)". Without this the dash and its two times land on separate
+    # lines when splitting, so neither fragment is a complete interval and the
+    # whole schedule is dropped as unparseable.
+    s = re.sub(
+        r"(AM|PM)\s*-\s*\n\s*(\d{1,2}(?::\d{2})?(?:AM|PM))",
+        r"\1-\2",
+        s,
+    )
+
     s = s.replace("(", "").replace(")", "")
 
     parts = re.split(r"[\n;]+|\s{2,}", s)
@@ -111,7 +164,7 @@ def parse_schedule_hours(schedule):
 
     total_hours = 0.0
     starts = []
-    ends = []
+    ends = []            # stored in unfolded form (end may exceed 24)
     crosses_midnight = 0
 
 
@@ -125,11 +178,15 @@ def parse_schedule_hours(schedule):
         start = to_hour(*matches[0])
         end = to_hour(*matches[1])
 
-        if end >= start:
-            hours = end - start
-        else:
-            hours = (24 - start) + end
+        # Unfold past-midnight intervals onto a continuous scale:
+        # if the end clock-time is at or before the start, it belongs to the
+        # next day, so add 24. This makes duration a clean (end - start) with
+        # no wrap special-casing, and 8AM-8AM -> 8..32 = 24h.
+        if end <= start:
+            end += 24
             crosses_midnight = 1
+
+        hours = end - start
 
         total_hours += hours
         starts.append(start)
@@ -140,6 +197,9 @@ def parse_schedule_hours(schedule):
         return None, None, None, 0
 
 
+    # start_hour = earliest clock start; end_hour = latest unfolded end.
+    # For a crossing interval end_hour will exceed 24 (e.g. 6PM-6AM -> 30.0),
+    # which downstream reads as "6AM next day" and keeps end_hour >= start_hour.
     return (
         min(starts),
         max(ends),
@@ -165,7 +225,13 @@ def add_hours_columns(df):
         ]
     ] = pd.DataFrame(parsed.tolist(), index=df.index)
 
-    df["hours_with_water"] = df["hours_planned"] * df["days_with_water"]
+    # hours_with_water = hours_planned * days_with_water.
+    # Unparseable schedules leave hours_planned as null (parse returns None),
+    # and null must PROPAGATE: hours_with_water is null for those rows too —
+    # never 0, which would fake a real "no hours" observation. to_numeric
+    # guards against days_with_water arriving as text.
+    days_num = pd.to_numeric(df["days_with_water"], errors="coerce")
+    df["hours_with_water"] = df["hours_planned"] * days_num
 
     df["pipeline_name"] = PIPELINE_NAME
     df["pipeline_version_hours"] = PIPELINE_VERSION
@@ -181,7 +247,7 @@ def add_hours_columns(df):
 # Core processor (BatchRunner compatible)
 # --------------------------------------------------
 
-def process_file(input_file: Path, output_file: Path):
+def process_file(input_file: Path, output_file: Path, process_cfg: dict = None):
 
     input_file = Path(input_file)
     output_file = Path(output_file)
@@ -191,15 +257,38 @@ def process_file(input_file: Path, output_file: Path):
     df = read_csv_utf8sig(input_file)
 
     required = {"schedule", "days_with_water"}
+    missing = required - set(df.columns)
 
-    if not required.issubset(df.columns):
-
+    if missing:
+        # No filtering / no silent skips: even if the hour-relevant columns are
+        # absent, the file is still WRITTEN, passing every row through with the
+        # hour columns null so nothing disappears from the pipeline. The gap is
+        # logged for review; downstream filtering decides what to do with it.
         logging.warning(
-            f"Missing columns {required - set(df.columns)} in {input_file}"
+            f"Missing columns {missing} in {input_file.name}: writing rows "
+            f"through with null hour columns."
         )
-        return
+        df_out = df.copy()
+        for col in ["start_hour", "end_hour", "hours_planned",
+                    "schedule_crosses_midnight", "hours_with_water"]:
+            df_out[col] = pd.NA
+        df_out["pipeline_name"] = PIPELINE_NAME
+        df_out["pipeline_version_hours"] = PIPELINE_VERSION
+    else:
+        df_out = add_hours_columns(df)
 
-    df_out = add_hours_columns(df)
+        # No filtering here: rows whose schedule could not be parsed into hours
+        # (e.g. junk like "j" or unhandled formats) are KEPT, with hours_planned
+        # and hours_with_water left null so they remain identifiable. They are
+        # still logged to logs/ for review. Filtering happens in a later,
+        # separate step.
+        unparsed_mask = df_out["hours_planned"].isna()
+        if unparsed_mask.any():
+            _append_unparsed_log(df_out[unparsed_mask].copy())
+            logging.warning(
+                f"{int(unparsed_mask.sum())} row(s) with unparseable schedule kept "
+                f"with null hours -> logged to {UNPARSED_LOG}"
+            )
 
     ensure_dir(output_file.parent)
 

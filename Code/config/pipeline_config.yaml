@@ -42,6 +42,10 @@ processes:
     module: scripts.process_days
     input_dir: calproc_wcuid
     output_dir: calproc_days
+    # QC outputs. Kept OUTSIDE calproc_days so the `hours` stage (which globs
+    # calproc_days recursively) does not re-ingest them as day summaries.
+    no_water_dir: calproc_days_no_water
+    errors_dir: calproc_days_errors
 
   hours:
     module: scripts.process_hours
@@ -140,3 +144,25 @@ aggregations:
       SDG11UID: count_sdg11uid
 
 
+
+
+concat:
+  # Consolidated outputs are written here (relative to --output_base, or an
+  # absolute path). Keeps them out of the data/<year>/ tree.
+  output_dir: consolidated
+  jobs:
+    hours:
+      input_dir: calproc_horas
+      output_file: all_hours.csv
+      # Post-concat filter: rows with hours_with_water null or zero are split
+      # out to scheduled_errors.csv; all_hours.csv keeps only rows with real
+      # hours. Remove these two keys to disable the split.
+      filter_column: hours_with_water
+      errors_file: scheduled_errors.csv
+    no_water:
+      input_dir: calproc_days_no_water
+      output_file: days_no_water.csv
+  exclude_globs: ["*__no_water.csv", "*__errors.csv"]
+  add_source_column: true
+  source_column_name: concat_source_file
+  encoding: utf-8-sig
