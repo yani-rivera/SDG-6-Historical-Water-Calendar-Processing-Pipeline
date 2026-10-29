@@ -1,0 +1,26 @@
+# QA: are the NO-GIS rows really without a polygon?  (IDs only, never names:
+# the same neighborhood name exists in different parts of the city.)
+# Read-only: nothing is changed.
+
+base_dir: ../..                         # qa_nogis/config/ -> SDG6
+
+inputs:
+  all_hours: data/consolidated/all_hours.csv
+  polygons: gis/neighborhoods.gpkg
+  polygons_layer: null
+  # Optional: the table that assigns SDG11UID to each wc_uid (the one the
+  # pipeline joins). null = skip check 2.
+  wc_catalog: null
+
+columns:
+  hours_id: SDG11UID                    # in all_hours
+  hours_wc: wc_uid                      # in all_hours
+  poly_id: SDG11UID                     # in the polygon layer
+  catalog_wc: wc_uid                    # in wc_catalog
+  catalog_id: SDG11UID                  # in wc_catalog
+
+no_gis_values: [NO-GIS]                 # placeholder(s) for "no polygon"
+treat_missing_as_no_gis: true           # empty SDG11UID counts as NO-GIS
+
+outputs:
+  dir: logs/qa_nogis

@@ -1,0 +1,50 @@
+# sdg6_trace 1.0 configuration. Paths are relative to base_dir (= the SDG6 folder).
+base_dir: ../..
+
+inputs:
+  all_hours: data/consolidated/all_hours.csv
+  prep_log: manual_prep_log.csv          # code -> original SANAA file (optional)
+
+# One CSV per calendar; {year} and {code} are filled in (e.g. 2020, 2020_03a)
+stage_files:
+  calproc:       data/{year}/calproc/{code}.csv
+  calproc_gpuid: data/{year}/calproc_gpuid/{code}.csv
+  calproc_wcuid: data/{year}/calproc_wcuid/{code}.csv
+
+columns:
+  source: concat_source_file      # all_hours: path of the calendar file -> calendar code
+  year: year
+  wc_uid: wc_uid
+  group_uid: group_uid
+  schedule: schedule
+  neighborhood: neighborhood      # all_hours
+  parser_neighborhood: neighborhood   # calproc / calproc_wcuid: neighbourhood as split by the parser
+  raw_group: raw_group
+  exception: qc_exception
+  day: day
+  has_water: has_water
+  days_with_water: days_with_water
+  days_observed: days_observed
+  hours_planned: hours_planned
+  hours_with_water: hours_with_water
+
+sample:
+  seed: 2026
+  random_per_year: 5
+  # the reviewer's strata (records per stratum)
+  strata:
+    pdf: 6
+    excel: 6
+    paired: 6
+    cross_month: 4
+    partial: 4
+    resolved_names: 6
+  cross_month_calendars: [2019_08b, 2019_09a, 2019_09b, 2019_10a]
+  partial_calendars: [2020_03a, 2020_06]
+  # 'at will': add records you want checked
+  specified:
+    - {calendar: 2019_03b, n: 2}          # El Picacho revision
+    # - {calendar: 2016_10, wc_uid: WC-XXXX}      # or group_uid: ..., neighborhood_contains: "VILLA NUEVA"
+
+outputs:
+  dir: output/trace

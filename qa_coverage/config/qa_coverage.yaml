@@ -1,0 +1,26 @@
+# QA: calendar periods and day coverage (Reviewer 4, comment 1)
+# Read-only. Answers: which days does each calendar cover, and does every
+# day of a month contribute once, and only once, to the monthly indicator?
+
+base_dir: ../..                         # qa_coverage/config/ -> SDG6
+
+inputs:
+  all_hours: data/consolidated/all_hours.csv
+
+columns:
+  source: concat_source_file            # calendar code = file name stem, e.g. 2025_03a
+  wc: wc_uid
+  group: group_uid
+  days_observed: days_observed
+  days_with_water: days_with_water
+  hours: hours_with_water
+
+# Calendar code -> period. Code pattern: YYYY_MM plus optional suffix.
+code_pattern: '(?P<year>\d{4})_(?P<month>\d{2})(?P<suffix>[a-z]?)'
+periods:
+  "":  {label: MONTH, first_day: 1,  last_day: end}   # whole month
+  "a": {label: QTR_1, first_day: 1,  last_day: 15}    # days 1-15
+  "b": {label: QTR_2, first_day: 16, last_day: end}   # day 16 to end of month
+
+outputs:
+  dir: logs/qa_coverage

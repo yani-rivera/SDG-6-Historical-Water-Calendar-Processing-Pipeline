@@ -1,0 +1,101 @@
+# Figures 3 and 4: maps of scheduled supply per neighborhood (SDG11UID)
+# for three contrasting months. Paths are relative to base_dir.
+
+# Folder the paths below start from, relative to THIS config file.
+# maps/config/ -> ../.. is the SDG6 project folder.
+base_dir: ../..
+
+inputs:
+  # Corrected monthly SDG11 file from aggregate_pipeline 1.1 (BatchRunner)
+  sdg11_summary: Summaries/Merged_SDG11.csv
+  # Neighborhood polygons carrying the SDG11UID (GeoPackage, shapefile, GeoJSON)
+  polygons: gis/neighborhoods.gpkg
+  polygons_layer: null                  # layer name inside a GeoPackage, or null
+
+columns:
+  id: SDG11UID                          # join key, same name in both inputs
+  year_month: year_month                # e.g. 2020-03
+  year_month_format: "%Y-%m"
+
+period:                                 # months considered for the selection
+  start: "2015-01"
+  end: "2020-12"
+
+# Panels, in order. Types:
+#   period_mean  mean per neighborhood over every month of the period
+#   lowest       month with the lowest city-wide mean of selection_variable
+#   highest      month with the highest city-wide mean of selection_variable
+#   month        a fixed month: {type: month, month: "2020-02"}
+# City-wide mean of a month = mean over neighborhoods.
+panels:
+  - {type: period_mean, label: "Mean of the record, 2015–2020"}
+  - {type: lowest,      label: "Lowest-availability month"}
+  - {type: highest,     label: "Highest-availability month"}
+selection_variable: mean_hours_with_water
+
+coverage:
+  # Months whose calendars cover less than `min` of the month (only one
+  # half-month calendar available) cannot be chosen as lowest/highest month.
+  column: coverage                      # written by aggregate_pipeline 1.2; null = off
+  min: 0.9
+  exclude_from_period_mean: true        # also leave them out of panel (a)
+
+crs: EPSG:32616                         # projected CRS for drawing (UTM 16N)
+
+figures:
+  # Classes use upper-inclusive breaks on the exact (decimal) means, no rounding:
+  # [5, 8, 10, 15] -> <=5, >5-8, >8-10, >10-15, >15. One colour and one label per class.
+  - name: figure3_hours
+    short_name: hours                    # single maps: hours_<period>_<panel>.png
+    variable: mean_hours_with_water
+    title: Monthly Mean Hours of Piped Water Across Neighborhoods
+    legend_title: Monthly mean hours of water
+    breaks: [50, 90, 130, 200]           # <- copy the classes of your current Figure 3
+    labels: ["≤ 50", "> 50 – 90", "> 90 – 130", "> 130 – 200", "> 200"]
+    colors: ["#c27a3a", "#f2b867", "#fbe9a0", "#b9acd8", "#7a55a6"]
+  - name: figure4_days
+    short_name: days
+    variable: mean_days_with_water
+    title: Monthly Mean Days of Piped Water Across Neighborhoods
+    legend_title: Monthly mean days of water
+    breaks: [5, 8, 10, 15]
+    labels: ["≤ 5", "> 5 – 8", "> 8 – 10", "> 10 – 15", "> 15"]
+    colors: ["#c27a3a", "#f2b867", "#fbe9a0", "#b9acd8", "#7a55a6"]
+
+# Light grey context drawn under the neighborhoods (any vector file), optional
+background:
+  - path: gis/neighborhoods.gpkg
+    fill: "#ececec"
+    edge: "#d6d6d6"
+    width: 0.4
+
+style:
+  # Original neighborhood map drawn underneath as a grey base; neighborhoods
+  # without a schedule are not coloured and are left out of the legend.
+  base_from_polygons: true
+  base_fill: "#f3f3f3"                  # middle class is pale yellow, not grey, so it stays visible
+  base_edge: "#f2f2f2"
+  base_width: 0.1
+  show_no_data: false                   # true = add "No schedule" (base colour) to legend
+  no_data_label: No schedule
+  # zoom: "data" = fit to neighborhoods with a schedule; "all" = whole polygon layer
+  zoom: data
+  edge_color: "#ffffff"
+  edge_width: 0.1
+  scale_bar_km: null                    # null = automatic; or a number, e.g. 16
+  legend_align: left                    # left | center: scale bar and colour legend
+  legend_left: 0.1                      # left edge (fraction of the panel) when left-aligned
+  panel_spacing: 1.2                    # space between the map panels (combined figure)
+  title_space: 0.93                     # top of the panels (fraction of figure height), below the main title
+  # grid cells [row, col] of panels (a), (b), (c); the legend takes the free cell
+  panel_positions: [[0, 0], [0, 1], [1, 0]]   # a top-left, b top-right, c bottom-left
+  single_map_right_margin: 0.12         # extra space at the right of single maps for the arrow
+  # map extent padding around the neighborhoods (fraction of width/height)
+  extent_pad: 0.05
+  dpi: 300
+
+outputs:
+  dir: output/maps
+  # also save each map on its own, named by the period it represents,
+  # e.g. hours_2016-2025_period_mean.png, hours_2020-02_lowest.png
+  save_single_maps: true

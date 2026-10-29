@@ -1,0 +1,356 @@
+pipeline_name: sdg6_calendar_pipeline
+pipeline_version: 1.4   # 1.4: no period change; 2020_06 (8-30 Jun) is partial and flagged by the coverage check
+                        # 1.3: qa_nogis, figure6, maps run through BatchRunner
+
+processes:
+
+  parse_excel:
+    module: scripts.parse_calendar_excel
+    input_dir: calendar
+    output_dir: calproc
+
+  clean_group:
+    module: scripts.clean_group
+    input_dir: calproc
+    output_dir: calproc_can
+
+  match_group_uid:
+    module: scripts.match_group_uid
+    input_dir: calproc_can
+    output_dir: calproc_gpuid
+
+  qa_missing_group_uid:
+    module: scripts.qa_missing_group_uid
+    input_dir: calproc_gpuid
+    output_dir: group
+
+  clean_neighborhood:
+    module: scripts.clean_neighborhood
+    input_dir: calproc_gpuid
+    output_dir: calproc_neighclean
+
+  match_wc_uid:
+    module: scripts.match_wc_uid
+    input_dir: calproc_neighclean
+    output_dir: calproc_wcuid
+
+  qa_catalog_wc_group:
+    module: scripts.qa_wcuid_grpuid
+    input_dir: calproc_wcuid
+    output_dir: qa/wcuid
+
+  process_days:
+    module: scripts.process_days
+    input_dir: calproc_wcuid
+    output_dir: calproc_days
+    # QC outputs. Kept OUTSIDE calproc_days so the `hours` stage (which globs
+    # calproc_days recursively) does not re-ingest them as day summaries.
+    no_water_dir: calproc_days_no_water
+    errors_dir: calproc_days_errors
+
+  hours:
+    module: scripts.process_hours
+    input_dir: calproc_days
+    output_dir: calproc_horas
+
+  # QA (read-only): calendar periods + day coverage. Run after all_hours.csv is
+  # built and BEFORE the aggregations; review logs before going on.
+  qa_coverage:
+    module: scripts.qa_coverage
+    input_file: consolidated/all_hours.csv
+    output_file: qa/coverage/coverage_summary.json   # other outputs go to the same folder
+    columns:
+      source: concat_source_file
+      wc: wc_uid
+      group: group_uid
+      days_observed: days_observed
+      days_with_water: days_with_water
+      hours: hours_with_water
+    code_pattern: '(?P<year>\d{4})_(?P<month>\d{2})(?P<suffix>[a-z]?)'
+    periods:
+      "":  {label: MONTH, first_day: 1,  last_day: end}
+      "a": {label: QTR_1, first_day: 1,  last_day: 15}
+      "b": {label: QTR_2, first_day: 16, last_day: end}
+
+  aggregate_sdg11:
+    module: scripts.aggregate_pipeline
+    # single-file mode: ALL calendars in one file (relative to --input_base),
+    # so the calendars of a month (a/b) are combined; output relative to --output_base
+    input_file: consolidated/all_hours.csv
+    output_file: Merged_SDG11.csv
+    aggregation: sdg11uid_month
+
+  aggregate_sector:
+    module: scripts.aggregate_pipeline
+    # single-file mode: ALL calendars in one file (relative to --input_base),
+    # so the calendars of a month (a/b) are combined; output relative to --output_base
+    input_file: consolidated/all_hours.csv
+    output_file: Merged_Sector.csv
+    aggregation: sector_month
+
+  aggregate_wc_group:
+    module: scripts.aggregate_pipeline
+    # single-file mode: ALL calendars in one file (relative to --input_base),
+    # so the calendars of a month (a/b) are combined; output relative to --output_base
+    input_file: consolidated/all_hours.csv
+    output_file: Merged_WCuid.csv
+    aggregation: wc_group_month
+
+  # ------------------------------------------------------------------
+  # Tool processes: run ONCE from their own config (paths, columns, style
+  # live there). Run after the aggregations. --input_base / --output_base
+  # are not needed. Paths are relative to the SDG6 project folder.
+  # ------------------------------------------------------------------
+
+  # QA (read-only): are the NO-GIS rows really without a polygon? IDs only.
+  qa_nogis:
+    script: qa_nogis/qa_nogis.py
+    tool_config: qa_nogis/config/qa_nogis.yaml
+
+  # Figure 6 + supplementary example-neighborhood figure
+  figure6:
+    script: fig6/make_figure6.py
+    tool_config: fig6/config/figure6.yaml
+
+  # Figures 3-4: maps of hours and days per neighborhood (SDG11UID)
+  maps:
+    script: maps/make_maps.py
+    tool_config: maps/config/maps.yaml
+
+
+
+
+paths:
+  infrastructure_catalog: catalog/infrastructure_catalog.csv
+  # columns used to join the catalog (merge_catalog step)
+  catalog_join_keys: [group_uid, wc_uid]
+
+aggregations:
+
+  # ------------------------------------------------------------------
+  # Every level is a chain of steps on all_hours (all calendars, one file):
+  #   1. label_calendar label each row with its calendar code (2025_03a, 2025_03b ...),
+  #                   read from the TEXT of concat_source_file; no other file is opened
+  #   2. merge_catalog  (optional) catalog attributes: water_sector, water_source ...
+  #      filter         (optional) drop rows by value, e.g. SDG11UID NO-GIS
+  #   3. within_calendar  repeated rows of a unit in ONE calendar   -> mean
+  #   4. across_calendars different calendars of the SAME month      -> sum
+  #   5. level          the level's statistics (max / min / mean / counts)
+  #   6. coverage       days covered (a + b) vs days in month -> coverage (v1.2)
+  #                     days_covered = max over the level's units, days_covered_min = min
+  # To add a level (e.g. by water_source), copy a block and change the keys.
+  # Any catalog column can be a level key once merge_catalog is in the chain.
+  # ------------------------------------------------------------------
+
+  wc_group_month:
+    steps:
+      - step: label_calendar
+        source_column: concat_source_file
+        output_column: source_calendar
+      - step: merge_catalog
+      - step: group
+        name: within_calendar
+        keep_missing_keys: true
+        group_by: [wc_uid, group_uid, SDG11UID, year_month, source_calendar]
+        metrics:
+          hours_with_water: {mean: hours_with_water}
+          days_with_water: {mean: days_with_water}
+          days_observed: {max: days_observed}       # same for simultaneous rows
+      - step: group
+        name: across_calendars
+        keep_missing_keys: true
+        group_by: [wc_uid, group_uid, SDG11UID, year_month]
+        metrics:
+          hours_with_water: {sum: hours_with_water}
+          days_with_water: {sum: days_with_water}
+          days_observed: {sum: days_observed}       # days covered by a + b
+        trace:
+          source_calendar: source_calendars
+      - step: group
+        name: level
+        group_by: [wc_uid, year_month]
+        metrics:
+          hours_with_water:
+            max: max_hours_with_water
+            min: min_hours_with_water
+            mean: mean_hours_with_water
+          days_with_water:
+            max: max_days_with_water
+            min: min_days_with_water
+            mean: mean_days_with_water
+          days_observed:
+            max: days_covered
+            min: days_covered_min
+        counts:
+          SDG11UID: count_sdg11uid
+        trace:
+          source_calendars: source_calendars
+      - step: coverage                  # days covered vs days in month (v1.2)
+        days_column: days_covered
+        year_month_column: year_month
+
+  sdg11uid_month:
+    steps:
+      - step: label_calendar
+        source_column: concat_source_file
+        output_column: source_calendar
+      # neighborhoods without a polygon are not an SDG11 unit: keep them out of
+      # this level (they remain in the wc_uid level)
+      - step: filter
+        column: SDG11UID
+        exclude: [NO-GIS]                # <- the exact placeholder used in all_hours
+        drop_missing: true
+      - step: group
+        name: within_calendar
+        keep_missing_keys: true
+        group_by: [SDG11UID, wc_uid, group_uid, year_month, source_calendar]
+        metrics:
+          hours_with_water: {mean: hours_with_water}
+          days_with_water: {mean: days_with_water}
+          days_observed: {max: days_observed}       # same for simultaneous rows
+      - step: group
+        name: across_calendars
+        keep_missing_keys: true
+        group_by: [SDG11UID, wc_uid, group_uid, year_month]
+        metrics:
+          hours_with_water: {sum: hours_with_water}
+          days_with_water: {sum: days_with_water}
+          days_observed: {sum: days_observed}       # days covered by a + b
+        trace:
+          source_calendar: source_calendars
+      - step: group
+        name: level
+        group_by: [SDG11UID, year_month]
+        metrics:
+          hours_with_water:
+            max: max_hours_with_water
+            min: min_hours_with_water
+            mean: mean_hours_with_water
+          days_with_water:
+            max: max_days_with_water
+            min: min_days_with_water
+            mean: mean_days_with_water
+          days_observed:
+            max: days_covered
+            min: days_covered_min
+        counts:
+          wc_uid: count_wc_uid
+        trace:
+          source_calendars: source_calendars
+      - step: coverage                  # days covered vs days in month (v1.2)
+        days_column: days_covered
+        year_month_column: year_month
+
+  sector_month:
+    steps:
+      - step: label_calendar
+        source_column: concat_source_file
+        output_column: source_calendar
+      - step: merge_catalog
+      - step: group
+        name: within_calendar
+        keep_missing_keys: true
+        group_by: [water_sector, wc_uid, group_uid, year_month, source_calendar]
+        metrics:
+          hours_with_water: {mean: hours_with_water}
+          days_with_water: {mean: days_with_water}
+          days_observed: {max: days_observed}       # same for simultaneous rows
+      - step: group
+        name: across_calendars
+        keep_missing_keys: true
+        group_by: [water_sector, wc_uid, group_uid, year_month]
+        metrics:
+          hours_with_water: {sum: hours_with_water}
+          days_with_water: {sum: days_with_water}
+          days_observed: {sum: days_observed}       # days covered by a + b
+        trace:
+          source_calendar: source_calendars
+      - step: group
+        name: level
+        group_by: [water_sector, year_month]
+        metrics:
+          hours_with_water:
+            mean: mean_hours_with_water
+          days_with_water:
+            mean: mean_days_with_water
+          days_observed:
+            max: days_covered
+            min: days_covered_min
+        trace:
+          source_calendars: source_calendars
+      - step: coverage                  # days covered vs days in month (v1.2)
+        days_column: days_covered
+        year_month_column: year_month
+
+  # Example of an enriched level from the catalog. To run it, add a process:
+  #   aggregate_source:
+  #     module: scripts.aggregate_pipeline
+  #     input_file: consolidated/all_hours.csv
+  #     output_file: Merged_Source.csv
+  #     aggregation: water_source_month
+  water_source_month:
+    steps:
+      - step: label_calendar
+        source_column: concat_source_file
+        output_column: source_calendar
+      - step: merge_catalog
+      - step: group
+        name: within_calendar
+        keep_missing_keys: true
+        group_by: [water_source, wc_uid, group_uid, year_month, source_calendar]
+        metrics:
+          hours_with_water: {mean: hours_with_water}
+          days_with_water: {mean: days_with_water}
+          days_observed: {max: days_observed}       # same for simultaneous rows
+      - step: group
+        name: across_calendars
+        keep_missing_keys: true
+        group_by: [water_source, wc_uid, group_uid, year_month]
+        metrics:
+          hours_with_water: {sum: hours_with_water}
+          days_with_water: {sum: days_with_water}
+          days_observed: {sum: days_observed}       # days covered by a + b
+        trace:
+          source_calendar: source_calendars
+      - step: group
+        name: level
+        group_by: [water_source, year_month]
+        metrics:
+          hours_with_water:
+            max: max_hours_with_water
+            min: min_hours_with_water
+            mean: mean_hours_with_water
+          days_with_water:
+            mean: mean_days_with_water
+          days_observed:
+            max: days_covered
+            min: days_covered_min
+        counts:
+          wc_uid: count_wc_uid
+        trace:
+          source_calendars: source_calendars
+      - step: coverage
+        days_column: days_covered
+        year_month_column: year_month
+
+
+concat:
+  # Consolidated outputs are written here (relative to --output_base, or an
+  # absolute path). Keeps them out of the data/<year>/ tree.
+  output_dir: consolidated
+  jobs:
+    hours:
+      input_dir: calproc_horas
+      output_file: all_hours.csv
+      # Post-concat filter: rows with hours_with_water null or zero are split
+      # out to scheduled_errors.csv; all_hours.csv keeps only rows with real
+      # hours. Remove these two keys to disable the split.
+      filter_column: hours_with_water
+      errors_file: scheduled_errors.csv
+    no_water:
+      input_dir: calproc_days_no_water
+      output_file: days_no_water.csv
+  exclude_globs: ["*__no_water.csv", "*__errors.csv"]
+  add_source_column: true
+  source_column_name: concat_source_file
+  encoding: utf-8-sig

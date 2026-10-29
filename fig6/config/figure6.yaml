@@ -1,0 +1,97 @@
+# Figure 6 + supplementary figure configuration (SDG-6 water calendars)
+
+# Folder that the paths below start from, relative to THIS config file.
+# fig6/config/ -> ../.. is the SDG6 project folder.
+base_dir: ../..
+
+inputs:
+  # All panels read the corrected monthly file from aggregate_pipeline 1.2:
+  # one row per calendar neighborhood (wc_uid) and month, calendars of a
+  # month added (a + b), distribution groups averaged.
+  calendar_entries: Summaries/Merged_WCuid.csv
+  neighborhood_summary: Summaries/Merged_WCuid.csv
+
+columns:
+  year: year
+  month: month
+  hours: mean_hours_with_water         # panels (a)
+  days: mean_days_with_water           # panels (b)
+  entry_label: calendar neighborhood (wc_uid)   # used in panel (a)/(b) titles
+  nb_id: wc_uid                         # SDG11UID if using sdg11mean
+  nb_label: calendar neighborhoods (wc_uid)  # used in the panel (c) title
+  nb_yearmonth: year_month              # e.g. "2020-03"
+  nb_yearmonth_format: "%Y-%m"          # "%Y_%m" if written as 2020_03
+  nb_hours: mean_hours_with_water
+
+period:
+  # Expected data period (rows outside are reported, never removed)
+  first_year: 2015
+  last_year: 2025
+
+plot_period:
+  # Display window only: limits what is drawn, does not change the data.
+
+  start: "2015-01"
+  end: "2025-12"
+
+classification:
+  # A month is "low"/"high" when its median lies more than k standard
+  # deviations below/above the mean of all monthly medians.
+  k_sd: 1.0
+
+coverage:
+  # Months whose calendars cover less than `min` of the month (e.g. only one
+  # half-month calendar available) are drawn hatched and left out of the
+  # low/typical/high classification and its mean/SD. Values are not changed.
+  column: coverage        # written by aggregate_pipeline 1.2; null = classify all months
+  min: 0.9
+
+panels:
+  # 1.2 (Reviewer 4, Figure 6 comment): hours and days drawn as monthly median with
+  # interquartile band instead of one box per month; coverage panel added.
+  spread: true            # spread between neighborhoods; false = leave it out of Figure 6
+  coverage: true          # coverage / quality-control panel (needs coverage column)
+  minmax_band: false      # also draw a light min-max band behind the IQR band
+
+dispersion:
+  # Spread between neighborhoods (nb_id level) per month for panel (c)
+  statistic: cv           # cv (relative, used in the paper) | iqr (hours)
+  # Rows sharing nb_id and month (several distribution groups of one wc_uid)
+  # are averaged into one value first, following the Methods rule:
+  # simultaneous schedules -> mean. Set false to keep one value per group.
+  collapse_groups: false   # Merged_WCuid already has one value per wc_uid and month
+
+examples:
+  # Neighborhood ids (nb_id) for the supplementary figure. Leave empty to pick automatically
+  # the neighborhoods with the lowest and highest median hours over the record.
+  ids: []
+  auto_pick: 2
+
+reference_line:
+  # fixed: illustrative continuous supply of 720 h / 30 days (24 h x 30 days)
+  # monthly: follows each month's length (672-744 h, 28-31 days)
+  mode: fixed
+  fixed_days: 30
+
+style:
+  # x-axis: months that get a label (others get a small tick), and label format
+  tick_months: [1, 5, 9]
+  date_format: "%Y_%m"
+  colors:
+    low: "#D7263D"
+    typical: "#F2C14E"
+    high: "#2BB3C0"
+    median: "#000000"
+    reference: "#7F7F7F"
+    dispersion: "#3B3B98"
+    partial: "#BDBDBD"
+    band: "#4C72B0"           # IQR band
+    missing: "#EEEEEE"        # month without a calendar
+    cov_complete: "#4C72B0"
+    cov_partial: "#E07B39"
+  dpi: 300
+
+outputs:
+  dir: output/figures
+  figure6: figure6_availability
+  supplementary: figureS_example_neighborhoods
