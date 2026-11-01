@@ -10,6 +10,8 @@ inputs:
   # month added (a + b), distribution groups averaged.
   calendar_entries: Summaries/Merged_WCuid.csv
   neighborhood_summary: Summaries/Merged_WCuid.csv
+  # Supplementary figure (1.4): mapped neighborhoods, so the examples are polygons on the maps
+  examples: Summaries/Merged_SDG11.csv
 
 columns:
   year: year
@@ -26,13 +28,13 @@ columns:
 period:
   # Expected data period (rows outside are reported, never removed)
   first_year: 2015
-  last_year: 2025
+  last_year: 2020
 
 plot_period:
   # Display window only: limits what is drawn, does not change the data.
 
   start: "2015-01"
-  end: "2025-12"
+  end: "2020-12"
 
 classification:
   # A month is "low"/"high" when its median lies more than k standard
@@ -62,10 +64,16 @@ dispersion:
   collapse_groups: false   # Merged_WCuid already has one value per wc_uid and month
 
 examples:
-  # Neighborhood ids (nb_id) for the supplementary figure. Leave empty to pick automatically
-  # the neighborhoods with the lowest and highest median hours over the record.
+  # Supplementary figure (1.4). Reads inputs.examples (Merged_SDG11: one row per SDG11UID and month).
+  id_column: SDG11UID
+  hours_column: mean_hours_with_water
+  coverage_column: coverage      # partial months (coverage < coverage.min) drawn as open points
+  exclude_prefix: NOGIS          # never pick calendar units without a polygon
+  # Ids to plot. Leave empty to pick automatically the neighborhoods with the lowest and
+  # highest median hours among those with the most complete records.
   ids: []
   auto_pick: 2
+  sharey: false                  # each panel on its own scale (values can differ by an order of magnitude)
 
 reference_line:
   # fixed: illustrative continuous supply of 720 h / 30 days (24 h x 30 days)

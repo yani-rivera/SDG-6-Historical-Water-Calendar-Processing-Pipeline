@@ -2,6 +2,7 @@
 from datetime import timedelta
 
 import matplotlib.dates as mdates
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
@@ -188,12 +189,34 @@ def figure6(q_hours, q_days, spread, cov, stat_label, colors, ref_hours_label, r
     return fig
 
 
-def example_neighborhoods(df, id_col, hours_col, ids, colors, tick_months=(1, 5, 9), date_fmt="%Y_%m"):
-    fig, axes = plt.subplots(len(ids), 1, figsize=(10, 2.2 * len(ids)), sharex=True, sharey=True,
-                             squeeze=False)
+def example_neighborhoods(df, id_col, hours_col, ids, colors, tick_months=(1, 5, 9), date_fmt="%Y_%m",
+                          cov_col=None, min_cov=None, missing_months=(), sharey=False, xlim=None):
+    """Monthly scheduled hours for a few neighborhoods (supplementary figure).
+
+    1.4: the line breaks at months without a value (no calendar, or neighborhood not
+    listed); months without any calendar are hatched as in Figure 6; partially covered
+    months (cov_col < min_cov) are drawn as open points, off the line, on a light tint.
+    """
+    lo = xlim[0] if xlim else df["date"].min()
+    hi = xlim[1] if xlim else df["date"].max()
+    full = pd.date_range(lo, hi, freq="MS")
+    fig, axes = plt.subplots(len(ids), 1, figsize=(10, 2.2 * len(ids)), sharex=True,
+                             sharey=sharey, squeeze=False)
+    any_partial = False
     for ax, uid in zip(axes[:, 0], ids):
-        s = df[df[id_col] == uid].sort_values("date")
-        ax.plot(s["date"], s[hours_col], color=colors["dispersion"], lw=1, marker="o", ms=2)
+        s = (df[df[id_col] == uid].drop_duplicates("date").set_index("date")
+             .sort_index().reindex(full))
+        y = s[hours_col]
+        partial = (s[cov_col] < min_cov) if (cov_col and min_cov is not None and cov_col in s) \
+            else pd.Series(False, index=s.index)
+        _missing_spans(ax, missing_months, colors)
+        _partial_spans(ax, s.index[partial.fillna(False)], colors)
+        ax.plot(s.index, y.where(~partial), color=colors["dispersion"], lw=1, marker="o", ms=2)
+        pm = partial.fillna(False)
+        if pm.any():
+            any_partial = True
+            ax.plot(s.index[pm], y[pm], ls="none", marker="o", ms=3.5, mfc="white",
+                    mec=colors["dispersion"], mew=0.9)
         ax.set_title(f"{uid}", loc="left", fontsize=9)
         ax.set_ylabel("Hours / month")
         ax.set_ylim(bottom=0)
@@ -203,6 +226,16 @@ def example_neighborhoods(df, id_col, hours_col, ids, colors, tick_months=(1, 5,
     _month_axis(axes[-1, 0], tick_months, date_fmt)
     axes[-1, 0].set_xlabel("Year–Month")
     pad = timedelta(days=20)
-    axes[-1, 0].set_xlim(df["date"].min() - pad, df["date"].max() + pad)
+    axes[-1, 0].set_xlim(full.min() - pad, full.max() + pad)
+    handles = [Line2D([], [], color=colors["dispersion"], marker="o", ms=3, lw=1,
+                      label="Scheduled hours (mean across distribution groups)")]
+    if len(missing_months):
+        handles.append(Patch(facecolor=colors.get("missing", "#EEEEEE"), edgecolor="#777777",
+                             hatch="xxx", label="No calendar"))
+    if any_partial:
+        handles.append(Line2D([], [], ls="none", marker="o", ms=4, mfc="white",
+                              mec=colors["dispersion"], label="Partially covered month"))
+    fig.legend(handles=handles, fontsize=8, loc="upper center", ncol=len(handles), frameon=False,
+               bbox_to_anchor=(0.5, 1.03))
     fig.tight_layout()
     return fig

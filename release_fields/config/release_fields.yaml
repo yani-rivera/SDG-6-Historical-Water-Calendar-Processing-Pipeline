@@ -1,0 +1,19 @@
+# release_fields 1.0. Paths are relative to base_dir (= the SDG6 folder).
+base_dir: ../..
+
+inputs:
+  pipeline_config: config/pipeline_config.yaml   # pipeline_version is read from here
+  prep_log: manual_prep_log.csv                   # code -> original SANAA file
+
+# Files to copy into the release with the added columns.
+#   kind: entries    -> source_calendar, original_file, processing_date, pipeline_version
+#   kind: aggregate  -> processing_date, pipeline_version
+files:
+  - {path: data/consolidated/all_hours.csv,        kind: entries, source_column: concat_source_file}
+  - {path: data/consolidated/scheduled_errors.csv, kind: entries, source_column: concat_source_file}
+  - {path: Summaries/Merged_WCuid.csv,  kind: aggregate}
+  - {path: Summaries/Merged_SDG11.csv,  kind: aggregate}
+  - {path: Summaries/Merged_Sector.csv, kind: aggregate}
+
+outputs:
+  dir: output/release

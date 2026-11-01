@@ -13,3 +13,13 @@ and the example SDG11UIDs. Outputs (PNG, PDF, summary CSVs and
 The script never filters or changes pipeline outputs; data fixes belong in the
 pipeline. Rows outside the configured period are plotted as found and listed in
 `rows_outside_period.csv`.
+
+## 1.4 Supplementary figure (example neighborhoods)
+
+Reads `inputs.examples` (Merged_SDG11, one row per SDG11UID and month), so the
+examples are neighborhoods with a polygon; ids starting with `examples.exclude_prefix`
+(NOGIS) are never picked. Each panel has its own y scale (`examples.sharey: false`).
+The line breaks at months without a value; months without any calendar are hatched
+as in Figure 6, and partially covered months (coverage < `coverage.min`) are drawn
+as open points on a light tint. The picked ids and the months without a calendar are
+recorded in `provenance_figure6.json`.

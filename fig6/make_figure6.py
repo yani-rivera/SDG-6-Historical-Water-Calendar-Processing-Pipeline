@@ -19,7 +19,7 @@ import fig6_data as data
 import fig6_plot as plot
 
 PIPELINE_NAME = "sdg6_figure6"
-PIPELINE_VERSION = "1.3"   # 1.3: gap/partial shading in panels a-c matches panel d and legend
+PIPELINE_VERSION = "1.4"   # 1.4: supplementary figure from Merged_SDG11 (no NOGIS), own y scale, gaps and partial months marked; 1.3: gap/partial shading in panels a-c matches panel d and legend
 
 
 def sha256(path):
@@ -111,11 +111,23 @@ def main(cfg_path):
                        min_cov if min_cov is not None else 0.9)
     save(fig, out_dir, cfg["outputs"]["figure6"], sty["dpi"])
 
-    ids = data.pick_examples(sdg, cols["nb_id"], cols["nb_hours"],
-                             cfg["examples"]["ids"], cfg["examples"]["auto_pick"])
-    fig_s = plot.example_neighborhoods(sdg, cols["nb_id"], cols["nb_hours"], ids, sty["colors"],
+    ex = cfg["examples"]
+    if "examples" in cfg["inputs"]:
+        ex_cols = dict(cols, nb_id=ex.get("id_column", "SDG11UID"),
+                       nb_hours=ex.get("hours_column", cols["nb_hours"]))
+        ex_df, _ = data.load_neighborhoods(cfg["inputs"]["examples"], ex_cols)
+    else:
+        ex_cols, ex_df = cols, sdg
+    if win:
+        ex_df = ex_df[ex_df["date"].between(lo, hi)]
+    ids = data.pick_examples(ex_df, ex_cols["nb_id"], ex_cols["nb_hours"], ex.get("ids"),
+                             ex.get("auto_pick", 2), ex.get("exclude_prefix"))
+    missing = data.months_without_calendar(entries, lo if win else None, hi if win else None)
+    fig_s = plot.example_neighborhoods(ex_df, ex_cols["nb_id"], ex_cols["nb_hours"], ids, sty["colors"],
                                        sty.get("tick_months", [1, 5, 9]),
-                                       sty.get("date_format", "%Y_%m"))
+                                       sty.get("date_format", "%Y_%m"),
+                                       ex.get("coverage_column"), cov_cfg.get("min"), missing,
+                                       ex.get("sharey", False), (lo, hi) if win else None)
     save(fig_s, out_dir, cfg["outputs"]["supplementary"], sty["dpi"])
 
     q_h.to_csv(out_dir / "monthly_hours_summary.csv", encoding="utf-8-sig")
@@ -137,6 +149,7 @@ def main(cfg_path):
         "classification_hours": thr_h,
         "classification_days": thr_d,
         "example_neighborhood_ids": [str(i) for i in ids],
+        "example_months_without_calendar": [d.strftime("%Y-%m") for d in missing],
         "software": {"python": platform.python_version(), "pandas": pd.__version__,
                      "matplotlib": matplotlib.__version__},
     }

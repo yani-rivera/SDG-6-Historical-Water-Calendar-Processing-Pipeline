@@ -104,10 +104,15 @@ def dispersion(df, value, statistic):
     return out.reindex(pd.date_range(out.index.min(), out.index.max(), freq="MS"))
 
 
-def pick_examples(df, id_col, value, ids, n_auto):
-    """Configured SDG11UIDs, or the lowest and highest by median over the record."""
+def pick_examples(df, id_col, value, ids, n_auto, exclude_prefix=None):
+    """Configured ids, or the lowest and highest by median over the record.
+
+    Ids starting with exclude_prefix (e.g. NOGIS) are never picked automatically.
+    """
     if ids:
         return list(ids)
+    if exclude_prefix:
+        df = df[~df[id_col].astype(str).str.upper().str.startswith(str(exclude_prefix).upper())]
     med = df.groupby(id_col)[value].median().dropna().sort_values()
     # require reasonably complete records
     counts = df.groupby(id_col)[value].count()
@@ -130,3 +135,12 @@ def coverage_shares(df, column, min_coverage):
                         "partial": g["partial"].mean()})
     out["n_partial"] = g["partial"].sum()
     return out.reindex(pd.date_range(out.index.min(), out.index.max(), freq="MS"))
+
+
+def months_without_calendar(entries, lo=None, hi=None):
+    """Months in the display range with no calendar entry at all."""
+    present = set(entries["date"].dropna().unique())
+    lo = lo if lo is not None else min(present)
+    hi = hi if hi is not None else max(present)
+    full = pd.date_range(lo, hi, freq="MS")
+    return [d for d in full if d not in present]
