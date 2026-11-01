@@ -109,8 +109,8 @@ Python 3, pandas, numpy, PyYAML, openpyxl, geopandas, pyogrio, matplotlib.
 If you use this code, cite the software record:
 
 > Rivera, Y. A. (2026). *SDG6-Reproducible Pipeline for Urban Water Distribution
-> Schedules (Tegucigalpa)* (Version 1.4) [Software]. Zenodo.
-> https://doi.org/10.5281/zenodo.23783569
+> Schedules (Tegucigalpa)* (Version 1.4.2) [Software]. Zenodo.
+> https://doi.org/10.5281/zenodo.23866612
 
 ## License
 
